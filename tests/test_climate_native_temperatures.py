@@ -7,7 +7,6 @@ from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
 
 from custom_components.eight_sleep import EightSleepBaseEntity
 from custom_components.eight_sleep.climate import (
-    DEFAULT_DURATION,
     EightSleepPillowThermostat,
     EightSleepThermostat,
 )
@@ -96,7 +95,7 @@ async def test_native_temperatures_preserve_readings_and_commands(
     expected_level = temp_to_heating_level(target, api_unit)
     if entity_type is EightSleepThermostat:
         entity._user_obj.set_heating_level.assert_awaited_once_with(
-            expected_level, DEFAULT_DURATION, power_on=False
+            expected_level, power_on=False
         )
         assert entity._attr_native_target_temperature == target
     else:
