@@ -23,6 +23,7 @@ class NameMapEntity:
 
 
 NAME_MAP = {
+    "autopilot_adjustments": NameMapEntity("Autopilot Adjustments"),
     "current_sleep_quality_score": NameMapEntity("Sleep Quality Score", "%"),
     "current_sleep_fitness_score": NameMapEntity("Sleep Fitness Score", "%"),
     "current_sleep_routine_score": NameMapEntity("Sleep Routine Score", "%"),
@@ -49,6 +50,15 @@ NAME_MAP = {
         "Presence End",
         device_class=SensorDeviceClass.TIMESTAMP,
         state_class=None
+    ),
+    "sleep_latency": NameMapEntity(
+        "Time to Fall Asleep", "s", SensorDeviceClass.DURATION
+    ),
+    "out_of_bed_latency": NameMapEntity(
+        "Time to Get Out of Bed", "s", SensorDeviceClass.DURATION
+    ),
+    "daily_sleep_debt": NameMapEntity(
+        "Daily Sleep Debt", "s", SensorDeviceClass.DURATION
     ),
     "exercise_window_start": NameMapEntity(
         "Exercise Window Start",

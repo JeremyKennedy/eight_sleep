@@ -1,67 +1,83 @@
-"""Verify device links without deprecated registry arguments."""
-
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, create_autospec, patch
 
 import pytest
 from homeassistant.helpers import device_registry as dr
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.eight_sleep import async_setup_entry
 from custom_components.eight_sleep.const import DOMAIN
 
 
-@pytest.mark.parametrize("has_base", [False, True])
-async def test_device_links(hass, caplog, has_base):
-    """Sides and the optional base link to the hub without usage warnings."""
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        title="Bed",
-        data={"username": "test@example.com", "password": "test"},
+async def register_devices(registry):
+    entry = SimpleNamespace(
+        entry_id="entry", title="Pod", data={"username": "user", "password": "password"}
     )
-    entry.add_to_hass(hass)
-    users = {
-        side: SimpleNamespace(
-            user_id=side, side=side, user_profile={"firstName": side}
-        )
+    hass = MagicMock()
+    hass.data = {}
+    hass.config_entries.async_forward_entry_setups = AsyncMock()
+    eight = MagicMock()
+    eight.start = AsyncMock(return_value=True)
+    eight.device_id = "pod"
+    eight.device_data = {"modelString": "Pod"}
+    eight.has_speaker = False
+    eight.users = {
+        side: SimpleNamespace(user_id=side, side=side, user_profile={"firstName": side})
         for side in ("left", "right")
     }
-    eight = SimpleNamespace(
-        device_id="hub",
-        device_data={"modelString": "Pod"},
-        users=users,
-        base_user=SimpleNamespace(base_data={"hardwareInfo": {}}) if has_base else None,
-        has_speaker=False,
-        start=AsyncMock(return_value=True),
-        update_device_data=AsyncMock(),
-        update_user_data=AsyncMock(),
-        update_base_data=AsyncMock(),
-    )
+    eight.base_user.base_data = {"hardwareInfo": {"sku": "Base"}}
+    coordinator = MagicMock()
+    coordinator.async_config_entry_first_refresh = AsyncMock()
+    registry.async_get_or_create.return_value = SimpleNamespace(id="registered-hub")
+
     with (
         patch("custom_components.eight_sleep.EightSleep", return_value=eight),
         patch("custom_components.eight_sleep.async_get_clientsession"),
         patch("custom_components.eight_sleep.get_async_client"),
-        patch("custom_components.eight_sleep.DataUpdateCoordinator") as coordinator,
-        patch.object(hass.config_entries, "async_forward_entry_setups", new=AsyncMock()),
+        patch(
+            "custom_components.eight_sleep.DataUpdateCoordinator",
+            return_value=coordinator,
+        ),
+        patch("custom_components.eight_sleep.dr.async_get", return_value=registry),
     ):
-        coordinator.return_value.async_config_entry_first_refresh = AsyncMock()
         assert await async_setup_entry(hass, entry)
 
-    registry = dr.async_get(hass)
-    devices = {
-        identifier: device
-        for device in dr.async_entries_for_config_entry(registry, entry.entry_id)
-        for identifier in device.identifiers
-    }
-    hub = devices.get((DOMAIN, "hub"))
-    assert hub is not None
-    for suffix in ("left", "right", "base"):
-        device = devices.get((DOMAIN, f"hub.{suffix}"))
-        if suffix == "base" and not has_base:
-            assert device is None
-        else:
-            assert device is not None
-            assert device.via_device_id == hub.id
+    registrations = registry.async_get_or_create.call_args_list
+    assert len(registrations) == 4
+    assert registrations[0].kwargs["identifiers"] == {(DOMAIN, "pod")}
+    assert "via_device" not in registrations[0].kwargs
+    assert "via_device_id" not in registrations[0].kwargs
+    for registration, identifier in zip(
+        registrations[1:], ("pod.left", "pod.right", "pod.base")
+    ):
+        assert registration.kwargs["identifiers"] == {(DOMAIN, identifier)}
+    return registrations[1:]
 
-    # Older HA releases do not warn; link assertions above still cover them.
-    assert "via_device" not in caplog.text
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "version,link",
+    [
+        ((2026, 8), {"via_device_id": "registered-hub"}),
+        ((2027, 1), {"via_device_id": "registered-hub"}),
+        ((2026, 7), {"via_device": (DOMAIN, "pod")}),
+        ((2025, 1), {"via_device": (DOMAIN, "pod")}),
+    ],
+)
+async def test_sides_and_base_link_to_the_hub(version, link):
+    with (
+        patch("custom_components.eight_sleep.MAJOR_VERSION", version[0]),
+        patch("custom_components.eight_sleep.MINOR_VERSION", version[1]),
+    ):
+        children = await register_devices(MagicMock())
+
+    for registration in children:
+        assert {
+            key: registration.kwargs[key]
+            for key in ("via_device", "via_device_id")
+            if key in registration.kwargs
+        } == link
+
+
+@pytest.mark.asyncio
+async def test_hub_link_matches_installed_device_registry():
+    await register_devices(create_autospec(dr.DeviceRegistry, instance=True))

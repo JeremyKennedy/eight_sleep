@@ -22,6 +22,8 @@ from homeassistant.const import (
     CONF_CLIENT_ID,
     CONF_CLIENT_SECRET,
     CONF_DEVICE_ID,
+    MAJOR_VERSION,
+    MINOR_VERSION,
     Platform,
 )
 from homeassistant.core import HomeAssistant
@@ -202,22 +204,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         ),
         ATTR_SW_VERSION: eight.device_data.get("firmwareVersion", UNDEFINED),
     }
-    hub = dev_reg.async_get_or_create(
+    hub_device = dev_reg.async_get_or_create(
         config_entry_id=entry.entry_id,
         identifiers={(DOMAIN, _get_device_unique_id(eight))},
         name=f"{entry.title} Eight Sleep Hub",
         **device_data,
     )
+    if (MAJOR_VERSION, MINOR_VERSION) >= (2026, 8):
+        via_device = {"via_device_id": hub_device.id}
+    else:
+        via_device = {"via_device": (DOMAIN, _get_device_unique_id(eight))}
     for user in eight.users.values():
         assert user.user_profile
 
-        side = dev_reg.async_get_or_create(
+        dev_reg.async_get_or_create(
             config_entry_id=entry.entry_id,
             identifiers={(DOMAIN, _get_device_unique_id(eight, user))},
             name=f"{(user.user_profile or {}).get('firstName') or user.side or 'Eight Sleep'}'s Eight Sleep Side",
+            **via_device,
             **device_data,
         )
-        dev_reg.async_update_device(side.id, via_device_id=hub.id)
 
     if eight.base_user:
         base_hardware_info = eight.base_user.base_data.get("hardwareInfo") or {}
@@ -228,13 +234,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             ATTR_SW_VERSION: base_hardware_info.get('softwareVersion'),
         }
 
-        base = dev_reg.async_get_or_create(
+        dev_reg.async_get_or_create(
             config_entry_id=entry.entry_id,
             identifiers={(DOMAIN, _get_device_unique_id(eight, base_entity=True))},
             name=f"{entry.title} Base",
+            **via_device,
             **base_device_data,
         )
-        dev_reg.async_update_device(base.id, via_device_id=hub.id)
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = EightSleepConfigEntryData(
         eight, device_coordinator, user_coordinator, base_coordinator, speaker_coordinator
